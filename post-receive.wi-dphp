@@ -1,0 +1,79 @@
+#!/bin/bash
+#
+#Need to be named post-receive !
+
+echo "******************************"
+echo "[hook] Post-receive. Deploy..."
+echo "******************************"
+
+<<COMMENT1
+#
+COMMENT1
+
+while read oldrev newrev refname
+do
+    echo "[hook] Find out project name..."
+    if [ $(git rev-parse --is-bare-repository) = true ]; then
+	#pwd /path/to/repo.git ... repo.git
+	REPOSITORY_BASENAME=$(basename "$PWD")
+	#Убираем .git
+	REPOSITORY_BASENAME=${REPOSITORY_BASENAME%.git}
+    else
+	REPOSITORY_BASENAME=$(basename $(readlink -nf "$PWD"/..))
+    fi
+    LOGFILE='./post-receive.log'
+    echo -e "Received Push Request at $( date +%F/%H:%M:%S )" >> $LOGFILE
+    echo " - Old SHA: $oldrev New SHA: $newrev Branch Name: $refname" >> $LOGFILE
+    echo "Starting Deploy. $( date +%F/%H:%M:%S )" >> $LOGFILE
+    BRANCH='master'
+    REPOSITORY_BASENAME=$REPOSITORY_BASENAME
+#   DEPLOY_PATH=/var/www/$REPOSITORY_BASENAME/
+    #For deployer.git 
+    DEPLOYER_PHP="deploy"
+    echo "[hook] This is $REPOSITORY_BASENAME project"
+    #Check if deployer.php OR dev.deployer.php exist
+    if [ -f /etc/deploy/$REPOSITORY_BASENAME".php" ] || [ -f /etc/deploy/"dev."$REPOSITORY_BASENAME".php" ]; then
+      if [ "${refname}" = "refs/heads/${BRANCH}" ]; then
+	echo "[hook] On branch: ${BRANCH}..."
+	#cd deployers php dir
+	cd /etc/deploy/ || exit
+	#run deployer php script
+	echo "[hook] Run 'php $REPOSITORY_BASENAME.php' update $( date +%F/%H:%M:%S )"
+	#php $REPOSITORY_BASENAME.php
+	/opt/php/bin/php $REPOSITORY_BASENAME.php update
+	echo "[hook] Finish. $( date +%F/%H:%M:%S )."
+      else
+	  BRANCH='develop'
+	  #К примеру директория с приставкой .develop
+#	  DEPLOY_PATH=/var/www/$REPOSITORY_BASENAME".develop"/
+		if [ "${refname}" = "refs/heads/${BRANCH}" ]; then
+		  echo "[hook] On branch: ${BRANCH}..."
+		  #cd deployer php dir
+		  cd /var/deploy/ || exit
+		  #run deployer php script
+		  echo "[hook] Run 'php dev.$REPOSITORY_BASENAME.php' $( date +%F/%H:%M:%S )"
+		  /opt/php/bin/php "dev."$REPOSITORY_BASENAME.php update #or add 
+		  echo "[hook] Finish. $( date +%F/%H:%M:%S )."
+		fi
+	  #or...
+	  #else
+      fi
+    #-----------------deployer.git----------------#  
+    elif [ $REPOSITORY_BASENAME == $DEPLOYER_PHP ]; then
+    BRANCH='develop'
+    DEPLOY_PATH='/etc/deploy/'
+      if [ "${refname}" = "refs/heads/${BRANCH}" ]; then
+	echo "[hook] Updating '${DEPLOY_PATH}' "
+        umask 0002
+        cd ${DEPLOY_PATH} || exit
+        echo "[hook] Post-receive. Unset..."
+        unset GIT_DIR
+        echo "[hook] Post-receive. Pull... at $( date +%F/%H:%M:%S )"
+        git pull origin "${BRANCH}"
+        echo "[hook] Post-receive. Exec... at $( date +%F/%H:%M:%S )"
+        exec git-update-server-info
+      fi  
+    else   
+      echo "[hook] Deploy files doesn't exists. Exit without deploying." 
+    fi
+done
